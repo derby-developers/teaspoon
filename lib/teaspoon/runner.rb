@@ -38,7 +38,7 @@ module Teaspoon
       return false unless json && json["_teaspoon"] && json["type"]
       json["original_json"] = line
       return result_from_json(json)
-    rescue JSON::ParserError
+    rescue JSON::ParserError, Oj::ParseError
       false
     end
 

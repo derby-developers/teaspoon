@@ -16,7 +16,7 @@ module Teaspoon
         else raise Teaspoon::UnknownDriverOptions, "Unknown driver options -- supply a hash or json string"
         end
 
-      rescue JSON::ParserError
+      rescue JSON::ParserError, Oj::ParseError
         raise Teaspoon::UnknownDriverOptions, "Malformed driver options -- supply a hash or json string"
       end
 
