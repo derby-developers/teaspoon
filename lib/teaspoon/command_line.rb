@@ -1,7 +1,9 @@
 require "optparse"
 require "teaspoon/version"
 require "teaspoon/exceptions"
-require "teaspoon/formatters/base"
+require "teaspoon/utility"
+require "teaspoon/driver"
+require "teaspoon/formatter"
 
 module Teaspoon
   class CommandLine
@@ -10,9 +12,9 @@ module Teaspoon
       @options[:files] = opt_parser.parse!
 
       require_console
-      abort if Teaspoon::Console.new(@options).failures?
+      Teaspoon.abort(nil, 1) if Teaspoon::Console.new(@options).failures?
     rescue Teaspoon::EnvironmentNotFound => e
-      abort("#{e.message}\nConsider using -r path/to/teaspoon_env\n")
+      Teaspoon.abort("#{e.message} Consider using --require=path/to/teaspoon_env.rb")
     end
 
     def opt_parser
@@ -40,9 +42,7 @@ module Teaspoon
 
       opt :driver, "-d", "--driver DRIVER",
           "Specify driver:",
-          "  phantomjs (default)",
-          "  selenium",
-          "  capybara_webkit"
+          *driver_details
 
       opt :driver_options, "--driver-options OPTIONS",
           "Specify driver-specific options to pass into the driver.",
@@ -90,7 +90,7 @@ module Teaspoon
 
       opt :formatters, "-f", "--format FORMATTERS",
           "Specify formatters (comma separated)",
-          *Teaspoon::Formatters.known_formatters.map(&:cli_help)
+          *formatter_details
     end
 
     def opts_for_coverage
@@ -104,13 +104,11 @@ module Teaspoon
       separator("Utility")
 
       @parser.on "-v", "--version", "Display the version." do
-        STDOUT.print("#{Teaspoon::VERSION}\n")
-        exit
+        Teaspoon.abort(Teaspoon::VERSION, 0)
       end
 
       @parser.on "-h", "--help", "You're looking at it." do
-        STDOUT.print("#{@parser}\n")
-        exit
+        Teaspoon.abort(@parser, 0)
       end
     end
 
@@ -128,9 +126,16 @@ module Teaspoon
       require "teaspoon/console"
     end
 
-    def abort(message = nil)
-      STDOUT.print(message) if message
-      exit(1)
+    def formatter_details
+      Teaspoon::Formatter.available.map do |name, options|
+        "  #{name}#{' (default)' if options[:default]} - #{options[:description]}"
+      end
+    end
+
+    def driver_details
+      Teaspoon::Driver.available.map do |name, options|
+        "  #{name}#{' (default)' if options[:default]}"
+      end
     end
   end
 end

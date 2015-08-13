@@ -1,4 +1,5 @@
 require "sprockets/environment"
+require "teaspoon/coverage"
 
 module Teaspoon
   class Instrumentation
@@ -14,7 +15,8 @@ module Teaspoon
         env["QUERY_STRING"].to_s =~ /instrument=(1|true)/ &&            # the instrument param was provided
         response[0] == 200 &&                                           # the status is 200 (304 maybe?)
         response[1]["Content-Type"].to_s == "application/javascript" && # the format is something that we care about
-        response[2].respond_to?(:source)                                # it looks like an asset
+        response[2].respond_to?(:source) &&                             # it looks like an asset
+        !ignored?(response[2])                                          # it is not ignored
     end
 
     def self.executable
@@ -41,6 +43,14 @@ module Teaspoon
 
     protected
 
+    def self.ignored?(asset)
+      Array(Teaspoon::Coverage.configuration.ignore).any? do |ignore|
+        asset.pathname.to_s.match(ignore)
+      end
+    rescue Teaspoon::UnknownCoverage
+      false
+    end
+
     def add_instrumentation(asset)
       source_path = asset.pathname.to_s
       Dir.mktmpdir do |temp_path|
@@ -53,7 +63,7 @@ module Teaspoon
     def instrument(input)
       result = %x{#{self.class.executable} instrument --embed-source #{input.shellescape}}
       return result if $?.exitstatus == 0
-      raise Teaspoon::DependencyFailure, "Could not generate instrumentation for #{File.basename(input)}."
+      raise Teaspoon::DependencyError.new("Unable to add instrumentation to #{File.basename(input)}.")
     end
   end
 

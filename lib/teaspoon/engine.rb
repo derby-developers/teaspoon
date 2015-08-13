@@ -6,34 +6,11 @@ module Teaspoon
   class Engine < ::Rails::Engine
     isolate_namespace Teaspoon
 
-    ASSET_MANIFEST = [
-      # core library
-      'teaspoon.css',
-      'teaspoon-teaspoon.js',
-
-      # framework ties
-      'teaspoon/*.js',
-      'teaspoon-jasmine.js',
-      'teaspoon-mocha.js',
-      'teaspoon-qunit.js',
-
-      # frameworks
-      'jasmine/1.3.1.js',
-      'jasmine/2.0.0.js',
-      'mocha/1.10.0.js',
-      'mocha/1.17.1.js',
-      'qunit/1.12.0.js',
-      'qunit/1.14.0.js',
-
-      # all support libraries
-      'support/*.js'
-    ]
-
     routes do
       root to: "suite#index"
       match "/fixtures/*filename", to: "suite#fixtures", via: :get, as: "fixture"
       match "/:suite", to: "suite#show", via: :get, as: "suite", defaults: { suite: "default" }
-      match "/:suite/:hook", to: "suite#hook", via: :post, as: "suite_hook", defaults: { suite: "default", hook: "default" }
+      match "/:suite/:hook", to: "suite#hook", via: :post, defaults: { suite: "default", hook: "default" }
     end
 
     initializer :assets, group: :all do |app|
@@ -61,10 +38,15 @@ module Teaspoon
       Teaspoon.configuration.asset_paths.each do |path|
         assets.paths << Teaspoon.configuration.root.join(path).to_s
       end
+
+      # TODO: This breaks lazy loading of frameworks. Another way to avoid this?
+      Teaspoon::Framework.available.keys.each do |framework|
+        assets.paths += Teaspoon::Framework.fetch(framework).asset_paths
+      end
     end
 
     def self.add_precompiled_assets(assets)
-      assets.precompile += ASSET_MANIFEST
+      assets.precompile += Teaspoon.configuration.asset_manifest
     end
 
     def self.inject_instrumentation
@@ -79,6 +61,37 @@ module Teaspoon
       require Teaspoon::Engine.root.join("app/controllers/teaspoon/suite_controller")
 
       app.routes.prepend { mount Teaspoon::Engine => mount_at, as: "teaspoon" }
+    end
+
+    module ExceptionHandling
+      def self.add_rails_handling
+        return unless using_phantomjs?
+
+        # debugging should be off to display errors in the suite_controller
+        # Rails.application.config.assets.debug = false
+
+        # we want rails to display exceptions
+        Rails.application.config.action_dispatch.show_exceptions = true
+
+        # override the render exception method in ActionDispatch to raise a javascript exception
+        render_exceptions_with_javascript
+      end
+
+      private
+
+      def self.using_phantomjs?
+        Teaspoon::Driver.equal?(Teaspoon.configuration.driver, :phantomjs)
+      end
+
+      def self.render_exceptions_with_javascript
+        ActionDispatch::DebugExceptions.class_eval do
+          def render_exception(_env, exception)
+            message = "#{exception.class.name}: #{exception.message}"
+            body = "<script>throw Error(#{[message, exception.backtrace].join("\n").inspect})</script>"
+            [200, { "Content-Type" => "text/html;", "Content-Length" => body.bytesize.to_s }, [body]]
+          end
+        end
+      end
     end
   end
 end

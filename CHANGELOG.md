@@ -1,12 +1,113 @@
 ### Unreleased
 
-### 0.9.1
+#### Bug Fixes
+
+* Retain file filter when navigating to specs (#327)
+* Provide details when Istanbul fails (#368)
+* Fix support for barebones Rails app (#372)
+* Fix pending count and nested styles (#373)
+* Fix total count in Jasmine 2 (#378)
+
+
+### 1.0.2 (5/5/15)
+
+#### Bug Fixes
+
+* Use a more robust phantomjs polyfill (#360)
+* Revive support for 1.9.3 (#361)
+
+
+### 1.0.1 (5/5/15)
+
+#### Bug Fixes
+
+* Fix constant scoping for Phantomjs (#359)
+
+
+### 1.0.0 (5/4/15)
+
+#### Upgrade Steps
+
+- **Update your Gemfile**<br>
+  Change your Gemfile to use `teaspoon-jasmine` instead of `teaspoon`, if you're using Jasmine. If you're using Mocha, this would be `teaspoon-mocha`. Use `teaspoon-qunit` for QUnit.<br>
+  eg: For Jasmine:
+  ```ruby
+  gem 'teaspoon-jasmine'
+  ```
+  For Mocha:
+  ```ruby
+  gem 'teaspoon-mocha'
+  ```
+  For QUnit:
+  ```ruby
+  gem 'teaspoon-qunit'
+  ```
+
+  If you had Teaspoon locked at a specific version, kill the version. You'll now need to reference the version of the framework, instead of the version of Teaspoon.<br>
+  eg: If your Gemfile has `gem 'teaspoon', '0.9.1'` and you're using Mocha, you'll want your Gemfile to reference the latest version of Mocha: `gem 'teaspoon-mocha', '2.2.4'`. The teaspoon-mocha gem contains previous versions of Mocha, so even if you're not using version 2.2.4 of Mocha in your `teaspoon_env.rb`, still reference the latest version in your Gemfile and the older version should still work.
+
+- **Configuration: Update your coverage**<br>
+  In `teaspoon_env.rb`, if you use Teaspoon to generate coverage reports with Istanbul, and you use the `suite.no_coverage` to exclude files from coverage, you'll need to migrate that configuration into the `config.coverage` blocks. So if you have:
+
+  ```ruby
+  suite.no_coverage += /my_file.js/
+  ```
+
+  You should move this into the `coverage` block:
+
+  ```ruby
+  config.coverage do |coverage|
+    coverage.ignore += /my_file.js/
+  end
+  ```
+
+  This means that you can no longer exclude things at the suite level. If you had multiple suites with different `no_coverage` configurations, you'll now need to create multiple coverage blocks and specify the coverage you want when using the CLI.
+  eg: teaspoon --coverage=[coverage_name]
+
+- **Configuration: Prefer suite.use_framework over suite.javascripts**<br>
+  Teaspoon now has better support for framework versions. In `teaspoon_env.rb`, if you are using `suite.javascripts` to include the testing framework, you should use `suite.use_framework` with a version number instead.
+
+  If your `teaspoon_env.rb` has `suite.javascripts` configured:
+
+  ```ruby
+  suite.javascripts = ["jasmine/1.3.1", "teaspoon-jasmine", "your-custom-file.js"]
+  ```
+
+  This will break since `teaspoon-jasmine` no longer exists. Update this config to exclude any framework or Teaspoon files. Be sure to use `+=` as Teaspoon will be modifying this array to append framework and Teaspoon files.
+
+  ```ruby
+  suite.javascripts += ["your-custom-file.js"]
+  ```
+
+#### Enhancements
+
+* Break frameworks out into individual gems (eg teaspoon-mocha)
+* Frameworks (eg mocha, jasmine) can now be registered with core
+* Formatters (eg dot, documentation) can now be registered with core
+* Drivers (eg phantomjs, selenium) can now be registered with core
+* Support for Jasmine 2.0
+* Support for Mocha 2.0
+* Improved abstractions around how framework events are handled (via responders)
+* Can now specify framework version when installing
+* Adds `rake teaspoon:info` to show Teaspoon and framework versions
+* Backfill support for old versions of frameworks
+* Fail faster when teaspoon_env.rb cannot be found
+* Lots of refactors to clean things up
+
+#### Bug Fixes
+
+* Fix files excluded from coverage for RequireJS (@davestevens)
+* Fix double teaspoon hook (#332)
+* Instrument files when config.expand_assets is false (#357)
+
+
+### 0.9.1 (3/2/15)
 
 * Fixes an issue where suite view was failing
 * CI/Linux stability improvement (alphanumeric ordering of spec files)
 
 
-### 0.9.0
+### 0.9.0 (2/24/15)
 
 #### Enhancements
 
@@ -26,7 +127,7 @@
 * Direct support for Angular
 
 
-### 0.8.0
+### 0.8.0 (4/18/14)
 
 Configuration has changed considerably, and deprecation warnings have been provided. In general it's probably best to remove your /initializers/teaspoon.rb and reinstall using the generator. Configuration is now consolidated into spec/teaspoon_env.rb. **This can cause a stack level too deep exception unless the teaspoon_env.rb file properly wraps the loading of rails in a `defined?(Rails)` check.**
 

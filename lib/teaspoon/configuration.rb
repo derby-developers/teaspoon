@@ -1,9 +1,8 @@
 require "singleton"
+require "teaspoon/driver"
+require "teaspoon/formatter"
 
 module Teaspoon
-  autoload :Formatters, "teaspoon/formatters/base"
-  autoload :Drivers,    "teaspoon/drivers/base"
-
   class Configuration
     include Singleton
 
@@ -16,18 +15,20 @@ module Teaspoon
     # - add it to ENV_OVERRIDES if it can be overridden from ENV
     # - add it to the initializers in /lib/generators/install/templates so it's documented there as well
 
-    cattr_accessor :mount_at, :root, :asset_paths, :fixture_paths
+    cattr_accessor :mount_at, :root, :asset_paths, :fixture_paths, :asset_manifest
     @@mount_at       = "/teaspoon"
     @@root           = nil # will default to Rails.root
-    @@asset_paths    = ["spec/javascripts", "spec/javascripts/stylesheets", "test/javascripts", "test/javascripts/stylesheets"]
+    @@asset_paths    = ["spec/javascripts", "spec/javascripts/stylesheets",
+                        "test/javascripts", "test/javascripts/stylesheets"]
     @@fixture_paths  = ["spec/javascripts/fixtures", "test/javascripts/fixtures"]
+    @@asset_manifest = ["teaspoon.css", "teaspoon-filterer.js", "teaspoon/*.js", "support/*.js"]
 
     # console runner specific
 
     cattr_accessor :driver, :driver_options, :driver_timeout, :server, :server_port, :server_timeout, :fail_fast,
                    :formatters, :color, :suppress_log,
                    :use_coverage
-    @@driver         = "phantomjs"
+    @@driver         = Teaspoon::Driver.default
     @@driver_options = nil
     @@driver_timeout = 180
     @@server         = nil
@@ -35,7 +36,7 @@ module Teaspoon
     @@server_timeout = 20
     @@fail_fast      = true
 
-    @@formatters     = ["dot"]
+    @@formatters     = [Teaspoon::Formatter.default]
     @@color          = true
     @@suppress_log   = false
 
@@ -55,57 +56,43 @@ module Teaspoon
     @@suite_configs = { "default" => { block: proc {} } }
 
     def self.suite(name = :default, &block)
-      @@suite_configs[name.to_s] = { block: block, instance: Suite.new(&block) }
+      @@suite_configs[name.to_s] = { block: block, instance: Suite.new(name, &block) }
     end
 
     class Suite
-      FRAMEWORKS = {
-        jasmine: ["1.3.1", "2.0.0"],
-        mocha: ["1.10.0", "1.17.1"],
-        qunit: ["1.12.0", "1.14.0"],
-      }
-
       attr_accessor :matcher, :helper, :javascripts, :stylesheets,
                     :boot_partial, :body_partial,
-                    :no_coverage, :hooks, :expand_assets
+                    :hooks, :expand_assets
 
-      def initialize
+      def initialize(name = nil)
         @matcher       = "{spec/javascripts,app/assets}/**/*_spec.{js,js.coffee,coffee}"
         @helper        = "spec_helper"
-        @javascripts   = ["jasmine/1.3.1", "teaspoon-jasmine"]
+        @javascripts   = []
         @stylesheets   = ["teaspoon"]
 
         @boot_partial  = "boot"
         @body_partial  = "body"
 
-        @no_coverage   = [%r{/lib/ruby/gems/}, %r{/vendor/assets/}, %r{/support/}, %r{/(.+)_helper.}]
         @hooks         = Hash.new { |h, k| h[k] = [] }
         @expand_assets = true
 
         default = Teaspoon.configuration.suite_configs["default"]
         instance_eval(&default[:block]) if default
-        yield self if block_given?
+        if block_given?
+          yield self
+          raise Teaspoon::UnspecifiedFramework.new(name: name) if @javascripts.length == 0
+        end
       end
 
       def use_framework(name, version = nil)
-        name = name.to_sym
-        version ||= FRAMEWORKS[name].last if FRAMEWORKS[name]
-        unless FRAMEWORKS[name] && FRAMEWORKS[name].include?(version)
-          message = "Unknown framework \"#{name}\""
-          if FRAMEWORKS[name] && version
-            message += " with version #{version} -- available versions #{FRAMEWORKS[name].join(', ')}"
-          end
-          raise Teaspoon::UnknownFramework, message
-        end
+        framework = Teaspoon::Framework.fetch(name)
+        framework.modify_config(self)
 
-        @javascripts = [[name, version].join("/"), "teaspoon-#{name}"]
-        case name.to_sym
-        when :qunit
-          @matcher = "{test/javascripts,app/assets}/**/*_test.{js,js.coffee,coffee}"
-          @helper  = "test_helper"
-        end
+        @javascripts = framework.javascripts_for(version)
+        return if @javascripts
+
+        raise Teaspoon::UnknownFrameworkVersion.new(name: name, version: version)
       end
-      alias_method :use_framework=, :use_framework
 
       def hook(group = :default, &block)
         @hooks[group.to_s] << block
@@ -122,12 +109,13 @@ module Teaspoon
     end
 
     class Coverage
-      attr_accessor :reports, :output_path,
+      attr_accessor :reports, :output_path, :ignore,
                     :statements, :functions, :branches, :lines
 
       def initialize
         @reports      = ["text-summary"]
         @output_path  = "coverage"
+        @ignore       = [%r{/.rvm/gems/}, %r{/lib/ruby/gems/}, %r{/vendor/assets/}, %r{/support/}, %r{/(.+)_helper.}]
 
         @statements   = nil
         @functions    = nil

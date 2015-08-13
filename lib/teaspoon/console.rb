@@ -5,11 +5,12 @@ module Teaspoon
     def initialize(options = {})
       @default_options = options
       @suites = {}
+      Teaspoon::Environment.check_env!(options[:environment])
       Teaspoon::Environment.load(options)
 
       @server = start_server
-    rescue Teaspoon::ServerException => e
-      abort(e.message)
+    rescue Teaspoon::ServerError => e
+      Teaspoon.abort(e.message)
     end
 
     def options
@@ -26,11 +27,11 @@ module Teaspoon
       execute_without_handling(options)
     rescue Teaspoon::Failure
       false
-    rescue Teaspoon::RunnerException => e
+    rescue Teaspoon::RunnerError => e
       log(e.message)
       false
     rescue Teaspoon::Error => e
-      abort(e.message)
+      Teaspoon.abort(e.message)
     end
 
     def execute_without_handling(execute_options = {})
@@ -47,9 +48,7 @@ module Teaspoon
     end
 
     def run_specs(suite)
-      unless Teaspoon.configuration.suite_configs[suite.to_s]
-        raise Teaspoon::UnknownSuite, "Unknown suite: \"#{suite}\""
-      end
+      raise Teaspoon::UnknownSuite.new(name: suite) unless Teaspoon.configuration.suite_configs[suite.to_s]
 
       log("Teaspoon running #{suite} suite at #{base_url_for(suite)}")
       runner = Teaspoon::Runner.new(suite)
@@ -59,9 +58,7 @@ module Teaspoon
     end
 
     def export(suite)
-      unless Teaspoon.configuration.suite_configs[suite.to_s]
-        raise Teaspoon::UnknownSuite, "Unknown suite: \"#{suite}\""
-      end
+      raise Teaspoon::UnknownSuite.new(name: suite) unless Teaspoon.configuration.suite_configs[suite.to_s]
 
       log("Teaspoon exporting #{suite} suite at #{base_url_for(suite)}")
       Teaspoon::Exporter.new(suite, url_for(suite, false), options[:export]).export
@@ -94,10 +91,8 @@ module Teaspoon
 
     def driver
       return @driver if @driver
-      klass = "#{Teaspoon.configuration.driver.to_s.camelize}Driver"
-      @driver = Teaspoon::Drivers.const_get(klass).new(Teaspoon.configuration.driver_options)
-    rescue NameError
-      raise Teaspoon::UnknownDriver, "Unknown driver: \"#{Teaspoon.configuration.driver}\""
+      driver = Teaspoon::Driver.fetch(Teaspoon.configuration.driver)
+      @driver = driver.new(Teaspoon.configuration.driver_options)
     end
 
     def base_url_for(suite)
@@ -117,13 +112,8 @@ module Teaspoon
       "#{parts.join('&')}" if parts.present?
     end
 
-    def log(str, force = false)
-      STDOUT.print("#{str}\n") if force || !Teaspoon.configuration.suppress_log
-    end
-
-    def abort(message = nil)
-      log(message, true) if message
-      exit(1)
+    def log(str)
+      STDOUT.print("#{str}\n") unless Teaspoon.configuration.suppress_log
     end
   end
 end
